@@ -1,55 +1,81 @@
-# 以下是使用Python的Pygame库实现随机播放指定文件夹里的图片，并且可以控制播放间隔的代码：
-
-
 import os
-import random
-import time
-import pygame
+import numpy as np
+from keras.preprocessing.image import ImageDataGenerator
+from keras.models import Sequential
+from keras.layers import Dense, Dropout, Flatten, Activation
+from keras.layers.convolutional import Conv2D, MaxPooling2D
+from keras.utils import np_utils
 
-# 设置窗口大小为图片的分辨率
-pygame.init()
-pygame.display.set_caption("Random Image Player")
+# 加载已标记的图像
+train_data_dir = 'path/to/training/images'
+test_data_dir = 'path/to/test/images'
+img_width, img_height = 224, 224
+nb_train_samples = 1000
+nb_test_samples = 100
+batch_size = 16
+num_classes = len(os.listdir(train_data_dir))
+train_datagen = ImageDataGenerator(rescale=1./255)
+test_datagen = ImageDataGenerator(rescale=1./255)
 
-# 定义图片文件夹路径和播放间隔时间（秒）
-image_folder = "C:/Users/ifzhao/Pictures/新建文件夹"
-play_interval = 2
+train_generator = train_datagen.flow_from_directory(
+    train_data_dir,
+    target_size=(img_width, img_height),
+    batch_size=batch_size,
+    class_mode='categorical')
 
-# 获取图片列表
-image_list = []
-for filename in os.listdir(image_folder):
-    if filename.endswith(".jpg") or filename.endswith(".png"):
-        image_list.append(os.path.join(image_folder, filename))
+test_generator = test_datagen.flow_from_directory(
+    test_data_dir,
+    target_size=(img_width, img_height),
+    batch_size=batch_size,
+    class_mode='categorical')
 
-# 随机播放图片
-while True:
-    # 随机选择一张图片
-    image_path = random.choice(image_list)
+# 定义模型
+model = Sequential()
+model.add(Conv2D(32, (3, 3), padding='same', input_shape=(img_width, img_height, 3)))
+model.add(Activation('relu'))
+model.add(MaxPooling2D(pool_size=(2, 2)))
+model.add(Dropout(0.25))
 
-    # 加载图片并设置窗口大小和位置
-    image = pygame.image.load(image_path)
-    width, height = image.get_size()
-    screen = pygame.display.set_mode((width, height))
-    pygame.display.set_caption(os.path.basename(image_path))
-    pygame.display.set_icon(image)
+model.add(Conv2D(64, (3, 3), padding='same'))
+model.add(Activation('relu'))
+model.add(MaxPooling2D(pool_size=(2, 2)))
+model.add(Dropout(0.25))
 
-    # 显示图片
-    screen.blit(image, (0, 0))
-    pygame.display.flip()
+model.add(Flatten())
+model.add(Dense(512))
+model.add(Activation('relu'))
+model.add(Dropout(0.5))
+model.add(Dense(num_classes))
+model.add(Activation('softmax'))
 
-    # 等待播放间隔时间
-    time.sleep(play_interval)
+# 编译模型
+model.compile(loss='categorical_crossentropy',
+              optimizer='adam',
+              metrics=['accuracy'])
 
-    # 处理窗口关闭事件
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            exit()
+# 训练模型
+model.fit_generator(
+    train_generator,
+    steps_per_epoch=nb_train_samples // batch_size,
+    epochs=10,
+    validation_data=test_generator,
+    validation_steps=nb_test_samples // batch_size)
 
+# 使用训练好的模型进行预测
+predict_data_dir = 'path/to/predict/images'
+predict_datagen = ImageDataGenerator(rescale=1./255)
+predict_generator = predict_datagen.flow_from_directory(
+    predict_data_dir,
+    target_size=(img_width, img_height),
+    batch_size=batch_size,
+    class_mode=None,
+    shuffle=False)
 
-# 在上面的代码中，你需要修改以下部分以适应自己的需求：
-#
-# - `image_folder`：将其修改为包含要播放的图片的文件夹路径。
-# - `play_interval`：将其修改为两张图片之间的播放间隔时间（秒）。
-# - `screen`：如有必要，可以设置窗口的大小和位置。
-#
-# 运行代码后，你将看到一张随机选择的图片，该窗口将在每个播放间隔时间（秒）后更新以显示下一张随机选择的图片。在窗口上单击“关闭”按钮将停止播放并退出程序。
+predict_result = model.predict_generator(predict_generator, steps=predict_generator.samples // batch_size + 1)
+predicted_class_indices = np.argmax(predict_result, axis=1)
+
+# 输出预测结果
+labels = (train_generator.class_indices)
+labels = dict((v,k) for k,v in labels.items())
+predictions = [labels[k] for k in predicted_class_indices]
+print(predictions)
